@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "lidswitch",
+  "name": "Lidswitch",
+  "version": "1.0.0",
+  "author": "Michiel Turmel",
+  "license": "MIT",
+  "description": "Balkwidget voor lidswitch: zie of je weg bent, of er nog werk loopt, welke vragen zijn uitgesteld en kun je direct schakelen tussen aanwezig/afwezig. Gebruikt de CLI/status van lidswitch.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Lidswitch",
+    "description": "Toont de dekselstand (open/dicht), afwezig/aanwezig, clamshell, aantal actieve sessies, wachtende vragen en uitgestelde items. Linksklik: wissel override (open/closed). Rechtsklik: open overzicht met snelle instellingen en log. Midden: verversen.",
+    "category": "Systeem",
+    "aliases": [
+      "lidswitch",
+      "deksel",
+      "lid",
+      "away"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": {},
+    "schema": []
+  }
+}

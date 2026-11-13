@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Bridges the Quickshell widget to the lidswitch CLI. The widget never reads or
+# writes state itself: everything goes through here so there stays exactly one
+# writer per file.
+#
+#   status-json   current lid state plus sessions
+#   toggle        flip the manual override, then print status-json
+#   config        the effective config, defaults filled in
+#   set k=v...    merge keys into config.json, then print config
+#   check         run `lidswitch check` and return its output
+
+set -euo pipefail
+
+BIN="${LIDSWITCH_BIN:-$HOME/.local/bin/lidswitch}"
+CONFIG="${LIDSWITCH_CONFIG:-$HOME/.config/lidswitch/config.json}"
+
+fallback_status() {
+  printf '{"lid":"unknown","away":false,"clamshell":false,"awaySince":null,"sessions":[]}\n'
+}
+
+fallback_config() {
+  cat <<'JSON'
+{"notify":true,"awayInClamshell":true,"sleepWhenDone":{"enabled":false,"afterMinutes":20,"minAwayMinutes":10,"dryRun":false}}
+JSON
+}
+
+# `status --json` prints one object, but only the first line is guaranteed to be
+# complete if something interleaved a log line, so read it all and hand the
+# whole blob to jq rather than trusting a single line.
+status_json() {
+  local out
+  out=$("$BIN" status --json 2>/dev/null || true)
+  if [[ -z $out ]]; then
+    fallback_status
+    return 0
+  fi
+  if printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
+    printf '%s\n' "$out"
+  else
+    fallback_status
+  fi
+}
+
+read_config() {
+  if [[ -r $CONFIG ]] && jq -e . "$CONFIG" >/dev/null 2>&1; then
+    jq -c '.' "$CONFIG"
+  else
+    fallback_config
+  fi
+}
+
+# Fills in the keys the CLI would otherwise default on its own, so the widget
+# shows the value that is actually in effect rather than a guess.
+effective_config() {
+  read_config | jq -c '
+    .notify = (if .notify == null then true else .notify end)
+    | .awayInClamshell = (if .awayInClamshell == null then true else .awayInClamshell end)
+    | .sleepWhenDone = ((.sleepWhenDone // {}) + {
+        enabled: (if (.sleepWhenDone.enabled // null) == null then false else .sleepWhenDone.enabled end),
+        afterMinutes: (if (.sleepWhenDone.afterMinutes // null) == null then 20 else .sleepWhenDone.afterMinutes end),
+        minAwayMinutes: (if (.sleepWhenDone.minAwayMinutes // null) == null then 10 else .sleepWhenDone.minAwayMinutes end),
+        dryRun: (if (.sleepWhenDone.dryRun // null) == null then false else .sleepWhenDone.dryRun end)
+      })
+  '
+}
+
+# One writer: the widget. Merging instead of rewriting keeps keys the widget
+# does not know about, and `*` is a recursive object merge, so setting only
+# sleepWhenDone.enabled leaves afterMinutes alone.
+set_config() {
+  local patch='{}' pair key value
+  for pair in "$@"; do
+    key=${pair%%=*}
+    value=${pair#*=}
+    [[ $key == "$pair" ]] && continue
+    case $value in
+      true|false) ;;
+      *)
+        [[ $value =~ ^[0-9]+$ ]] || {
+          printf 'geen waarde voor %s: %s\n' "$key" "$value" >&2
+          exit 2
+        }
+        ;;
+    esac
+    patch=$(jq -c --arg k "$key" --argjson v "$value" 'setpath($k | split("."); $v)' <<<"$patch")
+  done
+
+  jq --argjson p "$patch" '. * $p' <<<"$(read_config)" >"$CONFIG.tmp.$$"
+  mv -f "$CONFIG.tmp.$$" "$CONFIG"
+  effective_config
+}
+
+case "${1:-}" in
+  status-json) status_json ;;
+  toggle)
+    away=$(status_json | jq -r '.away // false')
+    if [[ $away == true ]]; then
+      "$BIN" override open >/dev/null 2>&1 || true
+    else
+      "$BIN" override closed >/dev/null 2>&1 || true
+    fi
+    status_json
+    ;;
+  config) effective_config ;;
+  set)
+    shift
+    set_config "$@"
+    ;;
+  check) "$BIN" check 2>&1 || true ;;
+  *)
+    echo "usage: lidswitch-widget {status-json|toggle|config|set k=v...|check}" >&2
+    exit 2
+    ;;
+esac
