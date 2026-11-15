@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "lidswitch",
   "name": "Lidswitch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Michiel Turmel",
   "license": "MIT",
   "description": "Balkwidget voor lidswitch: zie of je weg bent, of er nog werk loopt, welke vragen zijn uitgesteld en kun je direct schakelen tussen aanwezig/afwezig. Gebruikt de CLI/status van lidswitch.",

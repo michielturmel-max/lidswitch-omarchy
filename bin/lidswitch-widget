@@ -3,11 +3,12 @@
 # writes state itself: everything goes through here so there stays exactly one
 # writer per file.
 #
-#   status-json   current lid state plus sessions
-#   toggle        flip the manual override, then print status-json
-#   config        the effective config, defaults filled in
-#   set k=v...    merge keys into config.json, then print config
-#   check         run `lidswitch check` and return its output
+#   state         one JSON object: {"status": {...}, "config": {...}}
+#   toggle        flip the manual override, then print state
+#   set k=v...    merge keys into config.json, then print state
+#   check         run `lidswitch check` and return its plain-text output
+#
+# `status-json` and `config` are kept as escape hatches for debugging.
 
 set -euo pipefail
 
@@ -64,15 +65,25 @@ effective_config() {
   '
 }
 
-# One writer: the widget. Merging instead of rewriting keeps keys the widget
-# does not know about, and `*` is a recursive object merge, so setting only
-# sleepWhenDone.enabled leaves afterMinutes alone.
+# One line, so the widget can parse stdout as a single JSON object. Both halves
+# come from the same call, which is what keeps the switches and the sliders in
+# step after a write.
+print_state() {
+  jq -c -n \
+    --argjson status "$(status_json)" \
+    --argjson config "$(effective_config)" \
+    '{status:$status, config:$config}'
+}
+
+# Merging instead of rewriting keeps keys the widget does not know about, and
+# `*` is a recursive object merge, so setting only sleepWhenDone.enabled leaves
+# afterMinutes alone.
 set_config() {
   local patch='{}' pair key value
   for pair in "$@"; do
     key=${pair%%=*}
     value=${pair#*=}
-    [[ $key == "$pair" ]] && continue
+    [[ -n $key && $key != "$pair" ]] || continue
     case $value in
       true|false) ;;
       *)
@@ -87,11 +98,12 @@ set_config() {
 
   jq --argjson p "$patch" '. * $p' <<<"$(read_config)" >"$CONFIG.tmp.$$"
   mv -f "$CONFIG.tmp.$$" "$CONFIG"
-  effective_config
 }
 
 case "${1:-}" in
+  state) print_state ;;
   status-json) status_json ;;
+  config) effective_config ;;
   toggle)
     away=$(status_json | jq -r '.away // false')
     if [[ $away == true ]]; then
@@ -99,16 +111,16 @@ case "${1:-}" in
     else
       "$BIN" override closed >/dev/null 2>&1 || true
     fi
-    status_json
+    print_state
     ;;
-  config) effective_config ;;
   set)
     shift
     set_config "$@"
+    print_state
     ;;
   check) "$BIN" check 2>&1 || true ;;
   *)
-    echo "usage: lidswitch-widget {status-json|toggle|config|set k=v...|check}" >&2
+    echo "usage: lidswitch-widget {state|toggle|set k=v...|check|status-json|config}" >&2
     exit 2
     ;;
 esac
